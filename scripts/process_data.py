@@ -1,9 +1,8 @@
 import io
-import datasets
 
 from pathlib import Path
 from collections import Counter
-from datasets import concatenate_datasets
+from datasets import load_dataset, concatenate_datasets
 
 
 def count_length(code):
@@ -29,12 +28,10 @@ def add_num_hidden_unit_tests(example):
 
 
 def main():
-    supported_lang_clusters = ['Python', 'Java', 'C', 'C++']
-    supported_langs = ['Python 3', 'Java 8', 'GNU C', 'GNU C++']
-    save_path = Path(__file__).parent.parent / Path('data') / Path('lang_code_translation')
+    supported_langs = ['Python 3', 'Java 8', 'GNU C', 'GNU C++', 'GNU C++11', 'GNU C++14']
+    save_path = Path(__file__).parent.parent / Path('data') / Path('lang_data')
 
-    dataset = datasets.load_dataset('NTU-NLP-sg/xCodeEval', 'code_translation',
-                                    split='validation')  # +validation_small+test
+    dataset = load_dataset('NTU-NLP-sg/xCodeEval', 'code_translation', split='validation')
     print(dataset)
 
     dataset = concatenate_datasets(
@@ -43,20 +40,23 @@ def main():
     print(dataset)
 
     dataset = dataset.remove_columns('file_name')
+    dataset = dataset.remove_columns('exec_outcome')
+    dataset = dataset.remove_columns('prob_desc_created_at')
     dataset = dataset.map(add_length)
     dataset = dataset.map(add_num_hidden_unit_tests)
     print(dataset)
 
-    lang_cluster_counts = Counter(dataset['lang_cluster'])
-    for lang_cluster, count in lang_cluster_counts.items():
-        print(f'{lang_cluster}: {count}')
-
     lang_counts = Counter(dataset['lang'])
     for lang, count in lang_counts.items():
         print(f'{lang}: {count}')
+
+    lang_cluster_counts = Counter(dataset['lang_cluster'])
+    for lang_cluster, count in lang_cluster_counts.items():
+        print(f'{lang_cluster}: {count}')
 
     dataset.save_to_disk(save_path)
 
 
 if __name__ == '__main__':
     main()
+    # python scripts/process_data.py

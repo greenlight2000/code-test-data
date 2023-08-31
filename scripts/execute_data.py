@@ -1,53 +1,22 @@
 from pathlib import Path
+from collections import Counter
 from datasets import load_from_disk
 
 from api_comm import APICommunication, ExtendedUnittest
 
 
-def get_runtimes():
-    api = APICommunication()
-    response = api.get_runtimes()
-
-    return response
-
-
-def search_runtime(runtime_name):
-    runtimes = get_runtimes()
-    result = {
-        'compile_cmd': None,
-        'compile_flags': None,
-        'execute_cmd': None,
-        'execute_flags': None,
-        'has_sanitizer': None,
-        'is_compiled': None,
-        'runtime_name': None,
-        'timelimit_factor': None
-    }
-    for runtime in runtimes:
-        if runtime['runtime_name'] == runtime_name:
-            result = runtime
-            break
-
-    return result
-
-
-def execute_code(language, source_code, unittests, compile_cmd, compile_flags, execute_cmd, execute_flags):
+def execute_code(language, source_code, unittests):
     api = APICommunication()
     response = api.execute_code(
         language=language,
         source_code=source_code,
-        unittests=unittests,
-        compiler_program_name=compile_cmd,
-        compiler_flags=compile_flags,
-        interpreter_cmd=execute_cmd,
-        interpreter_flags=execute_flags
+        unittests=unittests
     )
     print(response)
 
+    response_datas = response[0]
     exec_outcomes = []
     results = []
-    response_datas = response[0]
-
     if isinstance(response_datas, list):
         for response_data in response_datas:
             exec_outcomes.append(response_data['exec_outcome'])
@@ -59,28 +28,21 @@ def execute_code(language, source_code, unittests, compile_cmd, compile_flags, e
     return exec_outcomes, results
 
 
-def add_execute(example):
+def add_exec_outcome(example):
     language = example['lang']
     source_code = example['source_code']
     hidden_unit_tests = eval(example['hidden_unit_tests'])
 
-    runtime = search_runtime(language)
-    compile_cmd = runtime['compile_cmd']
-    compile_flags = runtime['compile_flags']
-    execute_cmd = runtime['execute_cmd']
-    execute_flags = runtime['execute_flags']
-
     unittests = []
-    for unit_test_case in hidden_unit_tests:
+    for hidden_unit_test in hidden_unit_tests:
         unittests.append(
             ExtendedUnittest(
-                input=unit_test_case['input'],
-                output=unit_test_case['output']
+                input=hidden_unit_test['input'],
+                output=hidden_unit_test['output']
             ).json()
         )
 
-    exec_outcomes, results = execute_code(language, source_code, unittests, compile_cmd, compile_flags, execute_cmd,
-                                          execute_flags)
+    exec_outcomes, results = execute_code(language, source_code, unittests)
     print(exec_outcomes)
     print(results)
 
@@ -89,25 +51,30 @@ def add_execute(example):
     else:
         example['all_passed'] = 0
 
-    # Python 3 compiler has some bugs
-    if language == 'Python 3':
-        example['all_passed'] = 1
-
     return example
 
 
 def main():
-    load_path = Path(__file__).parent.parent / Path('data') / Path('lang_code_translation')
-    save_path = Path(__file__).parent.parent / Path('data') / Path('exec_code_translation')
+    load_path = Path(__file__).parent.parent / Path('data') / Path('lang_data')
+    save_path = Path(__file__).parent.parent / Path('data') / Path('exec_data')
 
     dataset = load_from_disk(str(load_path))
     print(dataset)
 
-    dataset = dataset.map(add_execute)
+    dataset = dataset.map(add_exec_outcome)
     print(dataset)
+
+    lang_counts = Counter(dataset['lang'])
+    for lang, count in lang_counts.items():
+        print(f'{lang}: {count}')
+
+    lang_cluster_counts = Counter(dataset['lang_cluster'])
+    for lang_cluster, count in lang_cluster_counts.items():
+        print(f'{lang_cluster}: {count}')
 
     dataset.save_to_disk(save_path)
 
 
 if __name__ == '__main__':
     main()
+    # python scripts/execute_data.py
