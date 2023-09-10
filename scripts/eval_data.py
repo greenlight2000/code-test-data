@@ -1,31 +1,56 @@
+import warnings
+import numpy as np
 from pathlib import Path
-from collections import Counter
 from datasets import load_dataset
 
 
 def main():
-    # TODO：回来重复五次，整理代码，得到一个平均值，处理五个json文件得到一个baseline，继续调优prompt，然后处理返回的json数据
-    
-    load_path_human = Path(__file__).parent.parent / Path('results') / Path('code_test_eval_human.jsonl')
-    load_path_palm = Path(__file__).parent.parent / Path('results') / Path('code_test_eval_palm.jsonl')
+    supported_llms = ['Human', 'PaLM', 'GPT-3.5', 'GPT-4']
+    supported_lang_clusters = ['C', 'C++', 'Java', 'Python']
+    load_name_llms = ['code_test_eval_human.jsonl', 'code_test_eval_palm.jsonl', 'code_test_eval_gpt3.jsonl',
+                      'code_test_eval_gpt4.jsonl']
 
-    dataset_human = load_dataset('json', split='train', data_files=str(load_path_human))
-    print(dataset_human)
+    for index1, load_name_llm in enumerate(load_name_llms):
+        load_path_llm = Path(__file__).parent.parent / Path('results') / Path(load_name_llm)
 
-    dataset_human = dataset_human.filter(
-        lambda example: example['pass_rate'] == 100 and example['line_coverage'] == 100 and example[
-            'branch_coverage'] == 100
-    )
-    print(dataset_human)
+        dataset_llm = load_dataset('json', split='train', data_files=str(load_path_llm))
+        print(dataset_llm)
 
-    lang_counts = Counter(dataset_human['lang'])
-    for lang, count in lang_counts.items():
-        print(f'{lang}: {count}')
+        lang_cluster_dataset_llms = [
+            dataset_llm.filter(lambda example: example['lang_cluster'] == lang_cluster)
+            for lang_cluster in supported_lang_clusters
+        ]
 
-    lang_cluster_counts = Counter(dataset_human['lang_cluster'])
-    for lang_cluster, count in lang_cluster_counts.items():
-        print(f'{lang_cluster}: {count}')
+        print('+' + '——' * 25 + '+')
+        print(supported_llms[index1] + ':')
+        print('+' + '——' * 25 + '+')
+        evaluation_metrics = []
+        for index2 in range(len(supported_lang_clusters)):
+            print('+' + '-' * 50 + '+')
+            print(supported_lang_clusters[index2] + ':')
+            print('+' + '-' * 50 + '+')
+
+            lang_cluster_dataset_llm = lang_cluster_dataset_llms[index2]
+
+            pass_rate = round(float(np.mean(lang_cluster_dataset_llm['pass_rate'])), 2)
+            evaluation_metrics.append(pass_rate)
+            print('average pass rate:', pass_rate)
+
+            line_coverage = round(float(np.mean(lang_cluster_dataset_llm['line_coverage'])), 2)
+            evaluation_metrics.append(line_coverage)
+            print('average line coverage:', line_coverage)
+
+            branch_coverage = round(float(np.mean(lang_cluster_dataset_llm['branch_coverage'])), 2)
+            evaluation_metrics.append(branch_coverage)
+            print('average branch coverage:', branch_coverage)
+
+        print('evaluation metrics:', evaluation_metrics)
+        overall_score = round(float(np.mean(evaluation_metrics)), 2)
+        print('+' + '-' * 50 + '+')
+        print('overall score:', overall_score)
+        print('+' + '-' * 50 + '+')
 
 
 if __name__ == '__main__':
+    warnings.filterwarnings('ignore')
     main()

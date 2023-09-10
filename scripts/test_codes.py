@@ -13,15 +13,15 @@ def parse_arguments():
                         choices=['code_test_data_raw.jsonl', 'code_test_data_human_1.jsonl',
                                  'code_test_data_human_2.jsonl', 'code_test_data_human_3.jsonl',
                                  'code_test_data_human_4.jsonl', 'code_test_data_human_5.jsonl',
-                                 'code_test_data_palm.jsonl'],
+                                 'code_test_data_palm.jsonl', 'code_test_data_gpt3.jsonl', 'code_test_data_gpt4.jsonl'],
                         type=str)
     parser.add_argument('--codes_dir_name', default='palm_codes',
                         choices=['raw_codes', 'human_1_codes', 'human_2_codes', 'human_3_codes', 'human_4_codes',
-                                 'human_5_codes', 'palm_codes'],
+                                 'human_5_codes', 'palm_codes', 'gpt3_codes', 'gpt4_codes'],
                         type=str)
     parser.add_argument('--temp_save_name', default='palm_data',
                         choices=['raw_data', 'human_1_data', 'human_2_data', 'human_3_data', 'human_4_data',
-                                 'human_5_data', 'palm_data'],
+                                 'human_5_data', 'palm_data', 'gpt3_data', 'gpt4_data'],
                         type=str)
     args = parser.parse_args()
 
@@ -32,11 +32,11 @@ def execute_command(command, input=None):
     if input is not None:
         input = input.replace('\r\n', '\n')
     try:
-        outcome = subprocess.run(command, input=input, capture_output=True, text=True, timeout=20, shell=True)
+        # References: https://stackoverflow.com/questions/66480855/python-subprocess-run-timeout-behaving-differently-on-windows-vs-linux
+        outcome = subprocess.run(command, input=input, capture_output=True, text=True, timeout=20, shell=False)
     except Exception as e:
         print('Error occurred while executing command:', e)
         outcome = subprocess.CompletedProcess(args=command, returncode=-1, stdout='', stderr=str(e))
-
     return outcome
 
 
@@ -47,206 +47,211 @@ def add_pass_rate(example):
     hidden_unit_tests = eval(example['hidden_unit_tests'])
     num_hidden_unit_tests = len(hidden_unit_tests)
 
-    if lang_cluster == 'C':
-        os.chdir(f'codes/{args.codes_dir_name}/c/{code_uid}')
-        print(os.getcwd())
+    # LLM failed to generate hidden unit tests
+    if num_hidden_unit_tests == 0:
+        print('Failed to generate hidden unit tests:', code_uid)
+        example['pass_rate'] = 0.00
+    else:
+        if lang_cluster == 'C':
+            os.chdir(f'codes/{args.codes_dir_name}/c/{code_uid}')
+            print(os.getcwd())
 
-        compile_command = 'gcc -fprofile-arcs -ftest-coverage -fPIC -O0 code.c -o code'
-        outcome = execute_command(compile_command)
-        print(outcome)
-
-        num_passed = 0
-        for index, hidden_unit_test in enumerate(hidden_unit_tests):
-            input = hidden_unit_test['input']
-            output = hidden_unit_test['output']
-
-            test_command = 'code'
-            outcome = execute_command(test_command, input)
+            compile_command = 'gcc -fprofile-arcs -ftest-coverage -fPIC -O0 code.c -o code'
+            outcome = execute_command(compile_command)
             print(outcome)
 
-            is_passed = True if outcome.returncode == 0 and (
-                    outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
-                                                                                                            '\r\n') in output or outcome.stdout.replace(
-                '\n', '\r\n').rstrip() in output) else False
-            if is_passed is True:
-                num_passed += 1
-            print(is_passed)
+            num_passed = 0
+            for index, hidden_unit_test in enumerate(hidden_unit_tests):
+                input = hidden_unit_test['input']
+                output = hidden_unit_test['output']
 
-            coverage_command = f'gcovr --json test-{index}.json'
-            outcome = execute_command(coverage_command)
+                test_command = 'code'
+                outcome = execute_command(test_command, input)
+                print(outcome)
+
+                is_passed = True if outcome.returncode == 0 and (
+                        outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
+                                                                                                                '\r\n') in output or outcome.stdout.replace(
+                    '\n', '\r\n').rstrip() in output) else False
+                if is_passed is True:
+                    num_passed += 1
+                print(is_passed)
+
+                coverage_command = f'gcovr --json test-{index}.json'
+                outcome = execute_command(coverage_command)
+                print(outcome)
+
+            pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
+            print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
+
+            line_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --txt'
+            outcome = execute_command(line_coverage_report_text_command)
+            print(outcome.stdout)
+
+            branch_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --branches --txt'
+            outcome = execute_command(branch_coverage_report_text_command)
+            print(outcome.stdout)
+
+            coverage_report_json_command = 'gcovr --add-tracefile "test-*.json" --json-summary coverage.json'
+            outcome = execute_command(coverage_report_json_command)
             print(outcome)
 
-        pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
-        print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
-
-        line_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --txt'
-        outcome = execute_command(line_coverage_report_text_command)
-        print(outcome.stdout)
-
-        branch_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --branches --txt'
-        outcome = execute_command(branch_coverage_report_text_command)
-        print(outcome.stdout)
-
-        coverage_report_json_command = 'gcovr --add-tracefile "test-*.json" --json-summary coverage.json'
-        outcome = execute_command(coverage_report_json_command)
-        print(outcome)
-
-        coverage_report_html_command = 'gcovr --add-tracefile "test-*.json" --html-details coverage.html'
-        outcome = execute_command(coverage_report_html_command)
-        print(outcome)
-
-        os.chdir('../../../..')
-        print(os.getcwd())
-
-        example['pass_rate'] = pass_rate
-
-    elif lang_cluster == 'C++':
-        os.chdir(f'codes/{args.codes_dir_name}/cpp/{code_uid}')
-        print(os.getcwd())
-
-        compile_command = 'g++ -fprofile-arcs -ftest-coverage -fPIC -O0 code.cpp -o code'
-        outcome = execute_command(compile_command)
-        print(outcome)
-
-        num_passed = 0
-        for index, hidden_unit_test in enumerate(hidden_unit_tests):
-            input = hidden_unit_test['input']
-            output = hidden_unit_test['output']
-
-            test_command = 'code'
-            outcome = execute_command(test_command, input)
+            coverage_report_html_command = 'gcovr --add-tracefile "test-*.json" --html-details coverage.html'
+            outcome = execute_command(coverage_report_html_command)
             print(outcome)
 
-            is_passed = True if outcome.returncode == 0 and (
-                    outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
-                                                                                                            '\r\n') in output or outcome.stdout.replace(
-                '\n', '\r\n').rstrip() in output) else False
-            if is_passed is True:
-                num_passed += 1
-            print(is_passed)
+            os.chdir('../../../..')
+            print(os.getcwd())
 
-            coverage_command = f'gcovr --json test-{index}.json'
-            outcome = execute_command(coverage_command)
+            example['pass_rate'] = pass_rate
+
+        elif lang_cluster == 'C++':
+            os.chdir(f'codes/{args.codes_dir_name}/cpp/{code_uid}')
+            print(os.getcwd())
+
+            compile_command = 'g++ -fprofile-arcs -ftest-coverage -fPIC -O0 code.cpp -o code'
+            outcome = execute_command(compile_command)
             print(outcome)
 
-        pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
-        print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
+            num_passed = 0
+            for index, hidden_unit_test in enumerate(hidden_unit_tests):
+                input = hidden_unit_test['input']
+                output = hidden_unit_test['output']
 
-        line_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --txt'
-        outcome = execute_command(line_coverage_report_text_command)
-        print(outcome.stdout)
+                test_command = 'code'
+                outcome = execute_command(test_command, input)
+                print(outcome)
 
-        branch_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --branches --txt'
-        outcome = execute_command(branch_coverage_report_text_command)
-        print(outcome.stdout)
+                is_passed = True if outcome.returncode == 0 and (
+                        outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
+                                                                                                                '\r\n') in output or outcome.stdout.replace(
+                    '\n', '\r\n').rstrip() in output) else False
+                if is_passed is True:
+                    num_passed += 1
+                print(is_passed)
 
-        coverage_report_json_command = 'gcovr --add-tracefile "test-*.json" --json-summary coverage.json'
-        outcome = execute_command(coverage_report_json_command)
-        print(outcome)
+                coverage_command = f'gcovr --json test-{index}.json'
+                outcome = execute_command(coverage_command)
+                print(outcome)
 
-        coverage_report_html_command = 'gcovr --add-tracefile "test-*.json" --html-details coverage.html'
-        outcome = execute_command(coverage_report_html_command)
-        print(outcome)
+            pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
+            print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
 
-        os.chdir('../../../..')
-        print(os.getcwd())
+            line_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --txt'
+            outcome = execute_command(line_coverage_report_text_command)
+            print(outcome.stdout)
 
-        example['pass_rate'] = pass_rate
+            branch_coverage_report_text_command = 'gcovr --add-tracefile "test-*.json" --branches --txt'
+            outcome = execute_command(branch_coverage_report_text_command)
+            print(outcome.stdout)
 
-    elif lang_cluster == 'Java':
-        os.chdir(f'codes/{args.codes_dir_name}/java/{code_uid}')
-        print(os.getcwd())
-
-        # find class name in the java source code
-        pattern = r'public\s+(?:final\s+)?class\s+(\w+)'
-        matches = re.search(pattern, source_code)
-        if matches:
-            class_name = matches.group(1)
-        else:
-            print('Class name not found, use default class name.')
-            class_name = 'code'
-
-        compile_command = f'javac {class_name}.java'
-        outcome = execute_command(compile_command)
-        print(outcome)
-
-        num_passed = 0
-        for index, hidden_unit_test in enumerate(hidden_unit_tests):
-            input = hidden_unit_test['input']
-            output = hidden_unit_test['output']
-
-            test_command = f'java -javaagent:../../../../jars/jacocoagent.jar=destfile=test.exec,append=true {class_name}'
-            outcome = execute_command(test_command, input)
+            coverage_report_json_command = 'gcovr --add-tracefile "test-*.json" --json-summary coverage.json'
+            outcome = execute_command(coverage_report_json_command)
             print(outcome)
 
-            is_passed = True if outcome.returncode == 0 and (
-                    outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
-                                                                                                            '\r\n') in output or outcome.stdout.replace(
-                '\n', '\r\n').rstrip() in output) else False
-            if is_passed is True:
-                num_passed += 1
-            print(is_passed)
-
-        pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
-        print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
-
-        coverage_report_csv_command = 'java -jar ../../../../jars/jacococli.jar report test.exec --classfiles . --sourcefiles . --csv coverage.csv'
-        outcome = execute_command(coverage_report_csv_command)
-        print(outcome)
-
-        coverage_report_html_command = 'java -jar ../../../../jars/jacococli.jar report test.exec --classfiles . --sourcefiles . --html coverage'
-        outcome = execute_command(coverage_report_html_command)
-        print(outcome)
-
-        os.chdir('../../../..')
-        print(os.getcwd())
-
-        example['pass_rate'] = pass_rate
-
-    elif lang_cluster == 'Python':
-        os.chdir(f'codes/{args.codes_dir_name}/python/{code_uid}')
-        print(os.getcwd())
-
-        num_passed = 0
-        for index, hidden_unit_test in enumerate(hidden_unit_tests):
-            input = hidden_unit_test['input']
-            output = hidden_unit_test['output']
-
-            test_command = 'python code.py'
-            outcome = execute_command(test_command, input)
+            coverage_report_html_command = 'gcovr --add-tracefile "test-*.json" --html-details coverage.html'
+            outcome = execute_command(coverage_report_html_command)
             print(outcome)
 
-            is_passed = True if outcome.returncode == 0 and (
-                    outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
-                                                                                                            '\r\n') in output or outcome.stdout.replace(
-                '\n', '\r\n').rstrip() in output) else False
-            if is_passed is True:
-                num_passed += 1
-            print(is_passed)
+            os.chdir('../../../..')
+            print(os.getcwd())
 
-            coverage_command = f'coverage run --branch --append code.py'
-            outcome = execute_command(coverage_command, input)
+            example['pass_rate'] = pass_rate
+
+        elif lang_cluster == 'Java':
+            os.chdir(f'codes/{args.codes_dir_name}/java/{code_uid}')
+            print(os.getcwd())
+
+            # find class name in the java source code
+            pattern = r'public\s+(?:final\s+)?class\s+(\w+)'
+            matches = re.search(pattern, source_code)
+            if matches:
+                class_name = matches.group(1)
+            else:
+                print('Class name not found, use default class name.')
+                class_name = 'code'
+
+            compile_command = f'javac {class_name}.java'
+            outcome = execute_command(compile_command)
             print(outcome)
 
-        pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
-        print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
+            num_passed = 0
+            for index, hidden_unit_test in enumerate(hidden_unit_tests):
+                input = hidden_unit_test['input']
+                output = hidden_unit_test['output']
 
-        coverage_report_text_command = 'coverage report --format=text --show-missing --precision=2'
-        outcome = execute_command(coverage_report_text_command)
-        print(outcome.stdout)
+                test_command = f'java -javaagent:../../../../jars/jacocoagent.jar=destfile=test.exec,append=true {class_name}'
+                outcome = execute_command(test_command, input)
+                print(outcome)
 
-        coverage_report_json_command = 'coverage json -o coverage.json'
-        outcome = execute_command(coverage_report_json_command)
-        print(outcome)
+                is_passed = True if outcome.returncode == 0 and (
+                        outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
+                                                                                                                '\r\n') in output or outcome.stdout.replace(
+                    '\n', '\r\n').rstrip() in output) else False
+                if is_passed is True:
+                    num_passed += 1
+                print(is_passed)
 
-        coverage_report_html_command = 'coverage html -d coverage'
-        outcome = execute_command(coverage_report_html_command)
-        print(outcome)
+            pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
+            print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
 
-        os.chdir('../../../..')
-        print(os.getcwd())
+            coverage_report_csv_command = 'java -jar ../../../../jars/jacococli.jar report test.exec --classfiles . --sourcefiles . --csv coverage.csv'
+            outcome = execute_command(coverage_report_csv_command)
+            print(outcome)
 
-        example['pass_rate'] = pass_rate
+            coverage_report_html_command = 'java -jar ../../../../jars/jacococli.jar report test.exec --classfiles . --sourcefiles . --html coverage'
+            outcome = execute_command(coverage_report_html_command)
+            print(outcome)
+
+            os.chdir('../../../..')
+            print(os.getcwd())
+
+            example['pass_rate'] = pass_rate
+
+        elif lang_cluster == 'Python':
+            os.chdir(f'codes/{args.codes_dir_name}/python/{code_uid}')
+            print(os.getcwd())
+
+            num_passed = 0
+            for index, hidden_unit_test in enumerate(hidden_unit_tests):
+                input = hidden_unit_test['input']
+                output = hidden_unit_test['output']
+
+                test_command = 'python code.py'
+                outcome = execute_command(test_command, input)
+                print(outcome)
+
+                is_passed = True if outcome.returncode == 0 and (
+                        outcome.stdout in output or outcome.stdout.rstrip() in output or outcome.stdout.replace('\n',
+                                                                                                                '\r\n') in output or outcome.stdout.replace(
+                    '\n', '\r\n').rstrip() in output) else False
+                if is_passed is True:
+                    num_passed += 1
+                print(is_passed)
+
+                coverage_command = f'coverage run --branch --append code.py'
+                outcome = execute_command(coverage_command, input)
+                print(outcome)
+
+            pass_rate = round(100. * num_passed / num_hidden_unit_tests, 2)
+            print(f'Pass rate: {pass_rate}% [{num_passed}/{num_hidden_unit_tests}]')
+
+            coverage_report_text_command = 'coverage report --format=text --show-missing --precision=2'
+            outcome = execute_command(coverage_report_text_command)
+            print(outcome.stdout)
+
+            coverage_report_json_command = 'coverage json -o coverage.json'
+            outcome = execute_command(coverage_report_json_command)
+            print(outcome)
+
+            coverage_report_html_command = 'coverage html -d coverage'
+            outcome = execute_command(coverage_report_html_command)
+            print(outcome)
+
+            os.chdir('../../../..')
+            print(os.getcwd())
+
+            example['pass_rate'] = pass_rate
 
     return example
 

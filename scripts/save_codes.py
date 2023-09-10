@@ -13,11 +13,11 @@ def parse_arguments():
                         choices=['code_test_data_raw.jsonl', 'code_test_data_human_1.jsonl',
                                  'code_test_data_human_2.jsonl', 'code_test_data_human_3.jsonl',
                                  'code_test_data_human_4.jsonl', 'code_test_data_human_5.jsonl',
-                                 'code_test_data_palm.jsonl'],
+                                 'code_test_data_palm.jsonl', 'code_test_data_gpt3.jsonl', 'code_test_data_gpt4.jsonl'],
                         type=str)
     parser.add_argument('--codes_dir_name', default='palm_codes',
                         choices=['raw_codes', 'human_1_codes', 'human_2_codes', 'human_3_codes', 'human_4_codes',
-                                 'human_5_codes', 'palm_codes'],
+                                 'human_5_codes', 'palm_codes', 'gpt3_codes', 'gpt4_codes'],
                         type=str)
     args = parser.parse_args()
 
